@@ -5,11 +5,7 @@ import ntpath
 import time
 from . import util, html
 from subprocess import Popen, PIPE
-
-if sys.version_info[0] == 2:
-    VisdomExceptionBase = Exception
-else:
-    VisdomExceptionBase = ConnectionError
+import matplotlib.pyplot as plt
 
 
 def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256):
@@ -69,18 +65,7 @@ class Visualizer():
         self.name = opt.name
         self.port = opt.display_port
         self.saved = False
-        if self.display_id > 0:  # connect to a visdom server given <display_port> and <display_server>
-            import visdom
-            self.plot_data = {}
-            self.ncols = opt.display_ncols
-            if "tensorboard_base_url" not in os.environ:
-                self.vis = visdom.Visdom(server=opt.display_server, port=opt.display_port, env=opt.display_env)
-            else:
-                self.vis = visdom.Visdom(port=2004,
-                                         base_url=os.environ['tensorboard_base_url'] + '/visdom')
-            if not self.vis.check_connection():
-                self.create_visdom_connections()
-
+        
         if self.use_html:  # create an HTML object at <checkpoints_dir>/web/; images will be saved under <checkpoints_dir>/web/images/
             self.web_dir = os.path.join(opt.checkpoints_dir, opt.name, 'web')
             self.img_dir = os.path.join(self.web_dir, 'images')
@@ -96,13 +81,6 @@ class Visualizer():
         """Reset the self.saved status"""
         self.saved = False
 
-    def create_visdom_connections(self):
-        """If the program could not connect to Visdom server, this function will start a new server at port < self.port > """
-        cmd = sys.executable + ' -m visdom.server -p %d &>/dev/null &' % self.port
-        print('\n\nCould not connect to Visdom server. \n Trying to start a server....')
-        print('Command: %s' % cmd)
-        Popen(cmd, shell=True, stdout=PIPE, stderr=PIPE)
-
     def display_current_results(self, visuals, epoch, save_result):
         """Display current results on visdom; save current results to an HTML file.
 
@@ -111,67 +89,20 @@ class Visualizer():
             epoch (int) - - the current epoch
             save_result (bool) - - if save the current results to an HTML file
         """
-        if self.display_id > 0:  # show images in the browser using visdom
-            ncols = self.ncols
-            if ncols > 0:        # show all the images in one visdom panel
-                ncols = min(ncols, len(visuals))
-                h, w = next(iter(visuals.values())).shape[:2]
-                table_css = """<style>
-                        table {border-collapse: separate; border-spacing: 4px; white-space: nowrap; text-align: center}
-                        table td {width: % dpx; height: % dpx; padding: 4px; outline: 4px solid black}
-                        </style>""" % (w, h)  # create a table css
-                # create a table of images.
-                title = self.name
-                label_html = ''
-                label_html_row = ''
-                images = []
-                idx = 0
-                for label, image in visuals.items():
-                    image_numpy = util.tensor2im(image)
-                    label_html_row += '<td>%s</td>' % label
-                    images.append(image_numpy.transpose([2, 0, 1]))
-                    idx += 1
-                    if idx % ncols == 0:
-                        label_html += '<tr>%s</tr>' % label_html_row
-                        label_html_row = ''
-                white_image = np.ones_like(image_numpy.transpose([2, 0, 1])) * 255
-                while idx % ncols != 0:
-                    images.append(white_image)
-                    label_html_row += '<td></td>'
-                    idx += 1
-                if label_html_row != '':
-                    label_html += '<tr>%s</tr>' % label_html_row
-                try:
-                    self.vis.images(images, ncols, 2, self.display_id + 1,
-                                    None, dict(title=title + ' images'))
-                    label_html = '<table>%s</table>' % label_html
-                    self.vis.text(table_css + label_html, win=self.display_id + 2,
-                                  opts=dict(title=title + ' labels'))
-                except VisdomExceptionBase:
-                    self.create_visdom_connections()
-
-            else:     # show each image in a separate visdom panel;
-                idx = 1
-                try:
-                    for label, image in visuals.items():
-                        image_numpy = util.tensor2im(image)
-                        self.vis.image(
-                            image_numpy.transpose([2, 0, 1]),
-                            self.display_id + idx,
-                            None,
-                            dict(title=label)
-                        )
-                        idx += 1
-                except VisdomExceptionBase:
-                    self.create_visdom_connections()
-
+        fig, axs = plt.subplots(1, 4, sharey=True, squeeze=True)
+        cur_subplot = 0
         if self.use_html and (save_result or not self.saved):  # save images to an HTML file if they haven't been saved.
             self.saved = True
             # save images to the disk
             for label, image in visuals.items():
                 image_numpy = util.tensor2im(image)
+                axs[cur_subplot].imshow(image_numpy, interpolation='nearest')
+                axs[cur_subplot].axis('off')
+                axs[cur_subplot].set_title(label)#[:label.find('_')])
                 img_path = os.path.join(self.img_dir, 'epoch%.3d_%s.png' % (epoch, label))
                 util.save_image(image_numpy, img_path)
+                cur_subplot += 1
+            plt.show()
 
             # update website
             webpage = html.HTML(self.web_dir, 'Experiment name = %s' % self.name, refresh=0)
