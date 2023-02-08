@@ -89,7 +89,7 @@ class Visualizer():
             epoch (int) - - the current epoch
             save_result (bool) - - if save the current results to an HTML file
         """
-        fig, axs = plt.subplots(1, 4, sharey=True, squeeze=True)
+        fig, axs = plt.subplots(1, len(visuals), sharey=True, squeeze=True)
         cur_subplot = 0
         if self.use_html and (save_result or not self.saved):  # save images to an HTML file if they haven't been saved.
             self.saved = True
