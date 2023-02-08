@@ -33,9 +33,12 @@ class QSModel(BaseModel):
 
         # specify the training losses you want to print out.
         # The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ['G_GAN', 'D_real', 'D_fake', 'G', 'NCE']
-        self.visual_names = ['real_A', 'fake_B', 'real_B']
+        self.loss_names = ['G_GAN', 'D_real', 'D_fake', 'G', 'NCE']        
+        #self.visual_names = ['real_A', 'fake_B', 'real_B']
+        self.style_channel = opt.style_channel
+        self.visual_names = ['real_B', 'fake_B']+['style_images_{}'.format(i) for i in range(self.style_channel)]
         self.nce_layers = [int(i) for i in self.opt.nce_layers.split(',')]
+        self.colors_count = opt.input_nc
 
         if opt.nce_idt and self.isTrain:
             self.loss_names += ['NCE_Y']
@@ -54,8 +57,9 @@ class QSModel(BaseModel):
             networks = networks_local_global
 
         # define networks (both generator and discriminator)
-        self.netG = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG, opt.normG, not opt.no_dropout, opt.init_type, opt.init_gain, opt.no_antialias, opt.no_antialias_up, self.gpu_ids, opt)
-        self.netF = networks.define_F(opt.input_nc, opt.netF, opt.normG, not opt.no_dropout, opt.init_type, opt.init_gain, opt.no_antialias, self.gpu_ids, opt)
+        input_channels = (self.style_channel+1) * self.colors_count
+        self.netG = networks.define_G(input_channels, opt.output_nc, opt.ngf, opt.netG, opt.normG, not opt.no_dropout, opt.init_type, opt.init_gain, opt.no_antialias, opt.no_antialias_up, self.gpu_ids, opt)
+        self.netF = networks.define_F(input_channels, opt.netF, opt.normG, not opt.no_dropout, opt.init_type, opt.init_gain, opt.no_antialias, self.gpu_ids, opt)
 
         if self.isTrain:
             self.netD = networks.define_D(opt.output_nc, opt.ndf, opt.netD, opt.n_layers_D, opt.normD, opt.init_type, opt.init_gain, opt.no_antialias, self.gpu_ids, opt)
@@ -113,11 +117,11 @@ class QSModel(BaseModel):
         Parameters:
             input (dict): include the data itself and its metadata information.
         The option 'direction' can be used to swap domain A and domain B.
-        """
-        AtoB = self.opt.direction == 'AtoB'
-        self.real_A = input['A' if AtoB else 'B'].to(self.device)
-        self.real_B = input['B' if AtoB else 'A'].to(self.device)
-        self.image_paths = input['A_paths' if AtoB else 'B_paths']
+        """		
+        #AtoB = self.opt.direction == 'AtoB'
+        self.real_A = input['style_images'].to(self.device)
+        self.real_B = input['gt_images'].to(self.device)
+        self.image_paths = input['image_paths']
 
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
@@ -133,8 +137,6 @@ class QSModel(BaseModel):
             self.idt_B = self.fake[self.real_A.size(0):]
 
         self.feat_k = self.netG(self.real_A, self.nce_layers, encode_only=True)
-
-
 
     def backward_D(self):
         if self.opt.lambda_GAN > 0.0:
@@ -165,7 +167,11 @@ class QSModel(BaseModel):
             self.loss_G_GAN = 0.0
 
         if self.opt.lambda_NCE > 0.0:
-            self.loss_NCE = self.calculate_NCE_loss(self.real_A, self.fake_B)
+            channels = self.real_A.size(dim=1)
+            shape = self.fake_B.size()
+            expanded = torch.zeros(shape[0], channels, shape[2], shape[3]).to(self.device)
+            expanded[:, :shape[1], :, :] = self.fake_B
+            self.loss_NCE = self.calculate_NCE_loss(self.real_A, expanded)
         else:
             self.loss_NCE = 0.0
 
@@ -196,3 +202,15 @@ class QSModel(BaseModel):
             total_nce_loss += loss.mean()
 
         return total_nce_loss / n_layers
+
+    def compute_visuals(self):
+        if self.isTrain:
+            self.netG.eval()
+            with torch.no_grad():
+                self.forward()
+            for i in range(self.style_channel):
+                attr_value = self.real_A[:, i*self.colors_count : (i+1)*self.colors_count, :, :]
+                setattr(self, 'style_images_{}'.format(i), attr_value)
+            self.netG.train()
+        else:
+            pass    
