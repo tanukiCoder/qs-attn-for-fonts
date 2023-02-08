@@ -33,7 +33,7 @@ if __name__ == '__main__':
             if total_iters % opt.print_freq == 0:
                 t_data = iter_start_time - iter_data_time
 
-            batch_size = data["A"].size(0)
+            batch_size = data["style_images"].size(0)
             total_iters += batch_size
             epoch_iter += batch_size
             torch.cuda.synchronize()
