@@ -36,7 +36,9 @@ class QSModel(BaseModel):
         self.loss_names = ['G_GAN', 'D_real', 'D_fake', 'G', 'NCE']        
         #self.visual_names = ['real_A', 'fake_B', 'real_B']
         self.style_channel = opt.style_channel
-        self.visual_names = ['real_B', 'fake_B']+['style_images_{}'.format(i) for i in range(self.style_channel)]
+        self.visual_names = ['real_B', 'fake_B'] \
+            + ['style_images_{}'.format(i) for i in range(self.style_channel)] \
+            + ['source_img']
         self.nce_layers = [int(i) for i in self.opt.nce_layers.split(',')]
         self.colors_count = opt.input_nc
 
@@ -168,10 +170,9 @@ class QSModel(BaseModel):
 
         if self.opt.lambda_NCE > 0.0:
             channels = self.real_A.size(dim=1)
-            shape = self.fake_B.size()
-            expanded = torch.zeros(shape[0], channels, shape[2], shape[3]).to(self.device)
-            expanded[:, :shape[1], :, :] = self.fake_B
-            self.loss_NCE = self.calculate_NCE_loss(self.real_A, expanded)
+            repeated_fake = self.fake_B.repeat(1, channels//self.colors_count, 1, 1).to(self.device)
+            repeated_real = self.real_A[:, -self.colors_count:, :, :].repeat(1, channels//self.colors_count, 1, 1).to(self.device)
+            self.loss_NCE = self.calculate_NCE_loss(repeated_real, repeated_fake) #real_A, fake_B
         else:
             self.loss_NCE = 0.0
 
@@ -211,6 +212,7 @@ class QSModel(BaseModel):
             for i in range(self.style_channel):
                 attr_value = self.real_A[:, i*self.colors_count : (i+1)*self.colors_count, :, :]
                 setattr(self, 'style_images_{}'.format(i), attr_value)
+            setattr(self, 'source_img', self.real_A[:, -self.colors_count:, :, :])
             self.netG.train()
         else:
             pass    
