@@ -62,7 +62,7 @@ class FtranslationDataset(BaseDataset):
         modified_opt = util.copyconf(self.opt, load_size=self.opt.crop_size if is_finetuning else self.opt.load_size)
         if self.opt.phase == 'train':
             is_gray = ('grayscale' in self.opt.preprocess) or (self.opt.input_nc == 1)
-            transform = get_transform(modified_opt, grayscale=is_gray)
+            transform = get_transform(modified_opt, grayscale=is_gray))
         else:
             transform = self.to_tensor
         
